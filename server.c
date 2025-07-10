@@ -233,6 +233,31 @@ inline int Process(int ID){
 		
 		if(op[1]=='u'){
 			// 服务器端接收文件
+			char filename[MAXLINE];
+			char filepath[MAXLINE];
+			char command[MAXLINE];
+
+			memset(filename, 0, sizeof(filename));
+			memset(filepath, 0, sizeof(filepath));
+			memset(command, 0, sizeof(command));
+			strcpy(filename, buf[ID]);
+			system("mkdir Files");
+			sprintf(filepath, "./Files/%s", filename);
+			sprintf(command, "rm -f %s", filepath);
+
+			FILE *ff=fopen(filepath, "rb");
+			if(ff!= NULL){
+				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+				strcpy(spemsg[ID], "Error(3): 文件已存在，请重试。");
+				sendonemsg(connfd[ID], spemsg[ID]);
+
+				fclose(ff);
+				return 0;
+			}
+
+
+
+			
 		}
 		
 		if(op[1]=='d'){
