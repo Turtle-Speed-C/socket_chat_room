@@ -20,18 +20,22 @@ struct sockaddr_in servaddr,chiladdr[MAXCON];
 socklen_t cliaddr_len;
 int listenfd,connfd[MAXCON],n;
 
-char buf[MAXCON][MAXLINE+50],	\	//每个客户端的消息缓存区，用于接收并存储来自客户端的消息。
-	spemsg[MAXCON][MAXLINE+50],	\	//发送给特定用户的消息缓存区。
-	filebuf[MAXCON][MAXFILE+50];	//用于存储文件内容的缓存区。
+char buf[MAXCON][MAXLINE+50];    //每个客户端的消息缓存区，用于接收并存储来自客户端的消息。
+char spemsg[MAXCON][MAXLINE+50]; //发送给特定用户的消息缓存区。
+char filebuf[MAXCON][MAXFILE+50];//用于存储文件内容的缓存区。
 	
 char str[INET_ADDRSTRLEN];			//存储客户端的IP地址字符串。
 char names[MAXCON][MAXNAME];		//存储每个连接用户的名称。
 
-int used[MAXCON],	\				//记录每个连接用户端是否使用。0代表未使用，1代表正在使用
-	downloading[MAXCON];			//记录每个用户是否正在下载文件。0代表未使用，1代表正在使用
+int used[MAXCON];                //记录每个连接用户端是否使用。0代表未使用，1代表正在使用
+int downloading[MAXCON];         //记录每个用户是否正在下载文件。0代表未使用，1代表正在使用
 
 void *TRD(void *arg);	//处理客户端的消息
 int Process(int ID);	//对接收的信息进行处理
+
+// 函数声明提前
+void sendonemsg(int sockfd,char* msg);
+void sendmsgtoall(int ID);
 
 int main(){
 	//服务器初始化
@@ -73,9 +77,9 @@ int main(){
 		int nowID = 0;
 		for(nowID = 0; nowID < MAXCON-1; nowID++)
 			if(!used[nowID]) break;
-		cliaddr_len = sizeof(cliaddr[nowID]);
+		cliaddr_len = sizeof(chiladdr[nowID]);
 		// 等待连接
-		connfd[nowID] = accept(listenfd, (struct sockaddr *)&cliaddr[nowID], &cliaddr_len);
+		connfd[nowID] = accept(listenfd, (struct sockaddr *)&chiladdr[nowID], &cliaddr_len);
 		
 		//检查是否是临时连接
 		if(nowID > MAXCON-1){
@@ -92,9 +96,9 @@ int main(){
 			}else{
 				// 再次判断后未满，设置对应的ID
 				connfd[nowID] = connfd[MAXCON-1];
-				cliaddr[nowID].sin_family = cliaddr[MAXCON-1].sin_family;
-				cliaddr[nowID].sin_port = cliaddr[MAXCON-1].sin_port;
-				cliaddr[nowID].sin_addr.s_addr = cliaddr[MAXCON-1].sin_addr.s_addr;
+				chiladdr[nowID].sin_family = chiladdr[MAXCON-1].sin_family;
+				chiladdr[nowID].sin_port = chiladdr[MAXCON-1].sin_port;
+				chiladdr[nowID].sin_addr.s_addr = chiladdr[MAXCON-1].sin_addr.s_addr;
 			}
 		}
 		used[nowID] = 1; // 该ID有人占用
@@ -128,7 +132,7 @@ inline int Process(int ID){
 			// 重名返回错误信息
 			for(int i=0;i<MAXCON-1;i++){
 				if(used[i]){
-					if(memcmp(name[i],buf[ID])==0){
+					if(memcmp(names[i],buf[ID],MAXNAME)==0){
 						memset(spemsg[ID],0,sizeof(spemsg[ID]));
 						strcpy(spemsg[ID],"Error(2): 姓名重复，请重试。");
 						sendonemsg(connfd[ID],spemsg[ID]);
@@ -140,12 +144,12 @@ inline int Process(int ID){
 			// 不重名则发送提示信息
 			strcpy(names[ID],buf[ID]);
 			sprintf(buf[ID], "%s(%s:%d)进入了聊天室", names[ID],
-					inet_ntop(AF_INET, &cliaddr[ID].sin_addr, str, sizeof(str)),
-					ntohs(cliaddr[ID].sin_port));
+					inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+					ntohs(chiladdr[ID].sin_port));
 			
 			memset(spemsg[ID],0,sizeof(spemsg[ID]));
 			strcpy(spemsg[ID],"成功进入聊天室");
-			sendonemsg(ID);
+			sendmsgtoall(ID);
 				
 			return 0;
 		}
@@ -158,7 +162,7 @@ inline int Process(int ID){
 				if(i=ID) continue;
 				
 				if(used[i]){
-					if(memcmp(name[i],buf[ID])==0){
+					if(memcmp(names[i],buf[ID],MAXNAME)==0){
 						memset(spemsg[ID],0,sizeof(spemsg[ID]));
 						strcpy(spemsg[ID],"Error(2): 姓名重复，请重试。");
 						sendonemsg(connfd[ID],spemsg[ID]);
@@ -171,14 +175,14 @@ inline int Process(int ID){
 			strcpy(newname,buf[ID]);
 			memset(buf[ID],0,strlen(buf[ID]));
 			sprintf(buf[ID], "%s(%s:%d)改名为%s", names[ID],
-					inet_ntop(AF_INET, &cliaddr[ID].sin_addr, str, sizeof(str)),
-					ntohs(cliaddr[ID].sin_port), newname);
+					inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+					ntohs(chiladdr[ID].sin_port), newname);
 			
 			memset(names[ID],0,strlen(names[ID]));
 			strcpy(names[ID],newname);
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 			strcpy(spemsg[ID], "改名成功");
-			sendonemsg(ID);
+			sendmsgtoall(ID);
 			sendmsgtoall(ID);
 			return 0;
 		}
@@ -187,8 +191,8 @@ inline int Process(int ID){
 			// 用户退出时，给其他所用用户发送提示信息
 			memset(buf[ID],0,strlen(buf[ID]));
 			sprintf(buf[ID], "%s(%s:%d)离开了聊天室", names[ID],
-					inet_ntop(AF_INET, &cliaddr[ID].sin_addr, str, sizeof(str)),
-					ntohs(cliaddr[ID].sin_port));
+					inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+					ntohs(chiladdr[ID].sin_port));
 					
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 			sendmsgtoall(ID);
@@ -206,8 +210,8 @@ inline int Process(int ID){
 				if(used[i]){
 					memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 					sprintf(spemsg[ID], "%-16s%-7d%s",
-							inet_ntop(AF_INET, &cliaddr[i].sin_addr, str, sizeof(str)),
-							ntohs(cliaddr[i].sin_port), names[i]);
+							inet_ntop(AF_INET, &chiladdr[i].sin_addr, str, sizeof(str)),
+							ntohs(chiladdr[i].sin_port), names[i]);
 					sendonemsg(connfd[ID], spemsg[ID]);
 				}
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));				
@@ -222,7 +226,7 @@ inline int Process(int ID){
 			FILE* filename=fopen("./file.txt","r");
 			
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-			while(fgets(spemsg,MAXLINE,filename)!=NULL){
+			while(fgets(spemsg[ID],MAXLINE,filename)!=NULL){
 				spemsg[ID][strlen(spemsg[ID])-1]='\0';
 				sendonemsg(connfd[ID],spemsg[ID]);
 			}
@@ -245,27 +249,125 @@ inline int Process(int ID){
 			sprintf(filepath, "./Files/%s", filename);
 			sprintf(command, "rm -f %s", filepath);
 
+			//判断是否有同名文件
 			FILE *ff=fopen(filepath, "rb");
-			if(ff!= NULL){
+			if(ff != NULL){ // 判断文件已存在应为 ff != NULL
 				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-				strcpy(spemsg[ID], "Error(3): 文件已存在，请重试。");
+				strcpy(spemsg[ID], "Error(5): 文件已存在，请重试。");
 				sendonemsg(connfd[ID], spemsg[ID]);
-
 				fclose(ff);
 				return 0;
 			}
 
+			//创建文件失败
+			FILE* fp = fopen(filepath, "wb");
+			if(fp==NULL){
+				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+				strcpy(spemsg[ID], "Error(4): 文件创建失败，请重试。");
+				sendonemsg(connfd[ID], spemsg[ID]);
+				return 0;
+			}
 
+			//开始接收文件
+			while(1){
+				memset(filebuf[ID], 0, sizeof(filebuf[ID]));
+				n = read(connfd[ID], filebuf[ID], MAXFILE);
+				if(n<=0){
+					// 接收途中客户端断连，发送提示信息并删除未完全接受的文件
+					sprintf(buf[ID], "%s(%s:%d)离开了聊天室", names[ID],
+							inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+							ntohs(chiladdr[ID].sin_port));
+					memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+					sendmsgtoall(ID);
+					close(connfd[ID]);
+					memset(names[ID], 0, sizeof(names[ID]));
+					used[ID] = 0;
+					fclose(fp);
+					system(command); // 删除未完成的文件
+					return 1; 
+				}
+				if(strcmp(filebuf[ID], FINISHFLAG) == 0){
+					// 接收完成，发送提示信息
+					memset(buf[ID], 0, sizeof(buf[ID]));
+					sprintf(buf[ID], "%s(%s:%d)上传了文件%s", names[ID],
+							inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+							ntohs(chiladdr[ID].sin_port), filename);
 
-			
+					memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+					strcpy(spemsg[ID], "文件上传成功");
+
+					sendonemsg(connfd[ID], spemsg[ID]);
+					fclose(fp);
+					return 0;
+				}
+				
+				fwrite(filebuf[ID], sizeof(char), n, fp);
+				//filebuf[ID]中前n个字节的数据写入到文件fp中，实现文件的保存。
+				fflush(fp);
+			}
 		}
 		
 		if(op[1]=='d'){
 			// 服务器发送文件
+			char filename[MAXLINE];
+			char filepath[MAXLINE];
+			char command[MAXLINE];
+
+			memset(filename, 0, sizeof(filename));
+			memset(filepath, 0, sizeof(filepath));
+			memset(command, 0, sizeof(command));
+			strcpy(filename, buf[ID]);
+			system("mkdir Files");
+			sprintf(filepath, "./Files/%s", filename);
+			sprintf(command, "rm -f %s", filepath);
+
+			FILE *fp = fopen(filepath, "rb");
+			if(fp==NULL){
+				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+				strcpy(spemsg[ID], "Error(5): 文件不存在，请重试。");
+				sendonemsg(connfd[ID], spemsg[ID]);
+				return 0;
+			}
+			struct stat st;
+			stat(filepath, &st);
+			// 声明一个 stat 结构体变量 st，用于保存文件的属性信息（如大小、权限、修改时间等）。
+			// stat(filepath, &st);
+			// 调用 stat 函数，获取 filepath 指定文件的属性，并将这些信息填充到 st 变量中。
+			// 例如，st.st_size 就是文件的字节大小。这样可以方便后续对文件属性的操作。
+			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+			sprintf(spemsg[ID], "File Size: %ld bytes", st.st_size);
+			write(connfd[ID], spemsg[ID], strlen(spemsg[ID]));
+			// 发送文件大小信息给客户端
+			downloading[ID] = 1; // 设置正在下载标志
+
+			while(fread(filebuf[ID], sizeof(char), MAXFILE, fp) > 0){
+				// 从文件中读取数据到 filebuf[ID] 中，直到文件结束。
+				write(connfd[ID], filebuf[ID], n); // 将读取的数据发送给客户端
+				memset(filebuf[ID], 0, sizeof(filebuf[ID]));
+				// 清空 filebuf[ID]，为下一次读取做准备			
+			}
+
+			// 发送完成标志
+			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+			strcpy(spemsg[ID], FINISHFLAG);
+			write(connfd[ID], spemsg[ID], strlen(spemsg[ID]));
+
+			downloading[ID] = 0; // 清除正在下载标志
+			fclose(fp);
 		}
+	}else{
+		// 非命令，作为消息发送给所有用户，并给消息来源发送提示信息
+		memset(buf[ID], 0, sizeof(buf[ID]));
+		sprintf(spemsg[ID], "%s(%s:%d): %s", names[ID],
+				inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+				ntohs(chiladdr[ID].sin_port), buf[ID]);
+		memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+		strcpy(spemsg[ID], "非命令，消息发送成功");
+		sendmsgtoall(ID);
+		return 0;
 	}
 	
-	
+	return 0;	//返回0表示没有错误
 	
 }
 
@@ -308,24 +410,23 @@ void *TRD(void *arg){		//创建的时候传入的是NULL
 		while(!used[ID]);	//只有由用户连接，才可以使用
 		memset(buf[ID],0,sizeof(buf[ID]));
 		
-		n=read(connfd(ID),buf[ID],,MAXLIEN);
+		n=read(connfd[ID],buf[ID],MAXLINE);
 		if(n<0){
+			sprintf(buf[ID],"%s(%s:%d)离开聊天室",names[ID],
+				inet_ntop(AF_INET,&chiladdr[ID].sin_addr,str,sizeof(str)),
+				ntohs(chiladdr[ID].sin_port));
 			
-			sprintf(buf[ID],"%s(%s:%d)离开聊天室",name[ID],	\
-				inet_ntop(AF_INET,&cliaddr[ID].sin_addr,str,sizeof(str)),	\
-				ntohs(cliaddr[ID].sin_port));
-			
-			memset(spemsg[ID],0,sizeof(spemsg[spemsg[ID]]));
+			memset(spemsg[ID],0,sizeof(spemsg[ID]));
 			sendmsgtoall(ID);
 			close(connfd[ID]);
-			memset(name[ID],0,strlen(name[ID]));
-			used(ID)=0;
+			memset(names[ID],0,strlen(names[ID]));
+			used[ID]=0;
 		}
 		
 		buf[ID][n]=0;
-		printf("Received from %s at PORT %d: %s\n",	\
-				inet_ntop(AF_INET,&cliaddr[ID].sin_addr,str,sizeof(str)),
-				ntohs(cliaddr[ID].sin_port));
+		printf("Received from %s at PORT %d: %s\n",		\
+				inet_ntop(AF_INET,&chiladdr[ID].sin_addr,str,sizeof(str)),	\
+				ntohs(chiladdr[ID].sin_port), buf[ID]);
 				
 		int q=Process(ID);
 		
