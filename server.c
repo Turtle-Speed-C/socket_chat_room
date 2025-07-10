@@ -16,6 +16,9 @@
 #define MAXFILE 10240		//最大文件缓存大小
 #define FINISHFLAG "|_|_|"	//文件上传完成表示
 
+#define HEARTBEAT_INTERVAL 30 // 心跳间隔时间，单位为秒
+#define HEARTBEAT_TIMEOUT 60 // 心跳超时时间，单位为秒
+
 struct sockaddr_in servaddr,chiladdr[MAXCON];
 socklen_t cliaddr_len;
 int listenfd,connfd[MAXCON],n;
@@ -30,12 +33,19 @@ char names[MAXCON][MAXNAME];		//存储每个连接用户的名称。
 int used[MAXCON];                //记录每个连接用户端是否使用。0代表未使用，1代表正在使用
 int downloading[MAXCON];         //记录每个用户是否正在下载文件。0代表未使用，1代表正在使用
 
+time_t last_heartbeat[MAXCON]; // 记录每个连接的最后心跳时间
+
+
+// 函数声明提前
 void *TRD(void *arg);	//处理客户端的消息
 int Process(int ID);	//对接收的信息进行处理
 
-// 函数声明提前
 void sendonemsg(int sockfd,char* msg);
 void sendmsgtoall(int ID);
+
+void *heartbeat_thread(void* arg);	// 心跳线程函数，用于检测客户端连接状态
+void cleanup_client(int ID);		// 清理客户端资源
+
 
 int main(){
 	//服务器初始化
@@ -104,6 +114,60 @@ int main(){
 		used[nowID] = 1; // 该ID有人占用
 	}
 	return 0;
+}
+
+
+// 清理客户端资源函数
+// 该函数用于清理客户端连接的资源，包括关闭连接、清除用户信息
+void cleanup_client(int ID){
+	if(used[ID]>0){
+		printf("Cleaning up client %d\n", ID);
+
+		//通知其他用户，该用户断开
+		if(strlen(used[ID])>0){
+			memset(buf[ID], 0, sizeof(buf[ID]));
+			sprintf(buf[ID], "%s(%s:%d)离开了聊天室", names[ID],
+					inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
+					ntohs(chiladdr[ID].sin_port));
+			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+			sendmsgtoall(ID);
+		}
+
+		close(connfd(ID));
+		used[ID]=0;
+		downloading[ID]=0;
+		memset(name[ID],0,sizeof(name[ID]));
+		last_heartbeat[ID]=0;
+	}
+}
+
+
+//心跳线程函数，用于检测客户端连接状态
+// 该函数会定期检查每个连接的心跳状态，如果超过一定时间没有收到心跳信号，则认为该连接已断开，并进行相应的清理工作。
+// 该函数会在独立的线程中运行，定期检查每个连接的心跳状态。
+void *heartbeat_thread(void* arg){
+	while(1){
+		sleep(HEARTBEAT_INTERVAL); // 每隔 HEARTBEAT_INTERVAL 秒检查一次心跳状态
+		
+		time_t current_time = time(NULL); // 获取当前时间
+		for(int i=0;i<MAXCON-1;i++){
+			if(used[i]&&!downloading[1]){
+				
+				if(current_time-last_heartbeat[i]>HEARTBEAT_TIMEOUT){
+					// 如果超过 HEARTBEAT_TIMEOUT 秒没有收到心跳信号，认为连接已断开
+					cleanup_client(i);
+					continule;
+				}
+				
+				//发送心跳包
+				memset(spemsg[i], 0, sizeof(spemsg[i]));
+				strcpy(spemsg[i],"Heartbeat");
+				sendonemsg(connfd[i], spemsg[i]);
+
+			}
+		}
+	}
+	return NULL;
 }
 
 inline int Process(int ID){
