@@ -500,4 +500,3 @@ void *TRD(void *arg){		//创建的时候传入的是NULL
 		
 	}
 }
-}
