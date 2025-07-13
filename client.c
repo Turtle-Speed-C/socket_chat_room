@@ -202,7 +202,7 @@ void getname(int mode){
 } 
 
 void upload_file(){
-    printf("输入文件路径及文件名(for example ./file)：\n");
+    printf("输入文件路径及文件名(for example ./client/filename 或完整路径)：\n");
     char filename[MAXLINE];
     fgets(filename, MAXLINE, stdin);
     FILE* fp = fopen(filename, "rb");

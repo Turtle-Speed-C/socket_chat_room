@@ -285,8 +285,8 @@ inline int Process(int ID){
 		
 		if(op[1]=='f'){
 			// 给请求的用户发送服务器端文件
-			system("mkdir Server_File");
-			system("ls Server_File > ./file.txt");
+			system("mkdir server");
+			system("ls server > ./file.txt");
 			FILE* filename=fopen("./file.txt","r");
 			
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
@@ -309,8 +309,8 @@ inline int Process(int ID){
 			memset(filepath, 0, sizeof(filepath));
 			memset(command, 0, sizeof(command));
 			strcpy(filename, buf[ID]);
-			system("mkdir Files");
-			sprintf(filepath, "./Files/%s", filename);
+			system("mkdir server/files");
+			sprintf(filepath, ".server/files/%s", filename);
 			sprintf(command, "rm -f %s", filepath);
 
 			//判断是否有同名文件
