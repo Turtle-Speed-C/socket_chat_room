@@ -124,7 +124,7 @@ void cleanup_client(int ID){
 		printf("Cleaning up client %d\n", ID);
 
 		//通知其他用户，该用户断开
-		if(strlen(used[ID])>0){
+		if(strlen(names[ID])>0){
 			memset(buf[ID], 0, sizeof(buf[ID]));
 			sprintf(buf[ID], "%s(%s:%d)离开了聊天室", names[ID],
 					inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
@@ -133,10 +133,10 @@ void cleanup_client(int ID){
 			sendmsgtoall(ID);
 		}
 
-		close(connfd(ID));
+		close(connfd[ID]);
 		used[ID]=0;
 		downloading[ID]=0;
-		memset(name[ID],0,sizeof(name[ID]));
+		memset(names[ID],0,sizeof(names[ID]));
 		last_heartbeat[ID]=0;
 	}
 }
@@ -151,12 +151,12 @@ void *heartbeat_thread(void* arg){
 		
 		time_t current_time = time(NULL); // 获取当前时间
 		for(int i=0;i<MAXCON-1;i++){
-			if(used[i]&&!downloading[1]){
+			if(used[i]&&!downloading[i]){
 				
 				if(current_time-last_heartbeat[i]>HEARTBEAT_TIMEOUT){
 					// 如果超过 HEARTBEAT_TIMEOUT 秒没有收到心跳信号，认为连接已断开
 					cleanup_client(i);
-					continule;
+					continue;
 				}
 				
 				//发送心跳包
@@ -223,12 +223,12 @@ inline int Process(int ID){
 			// 重名返回错误信息
 			char newname[MAXNAME];
 			for(int i=0;i<MAXCON-1;i++){
-				if(i=ID) continue;
+				if(i==ID) continue;
 				
 				if(used[i]){
 					if(memcmp(names[i],buf[ID],MAXNAME)==0){
 						memset(spemsg[ID],0,sizeof(spemsg[ID]));
-						strcpy(spemsg[ID],"Error(2): 姓名重复，请重试。");
+						strcpy(spemsg[ID],"Error(3): 姓名重复，请重试。");
 						sendonemsg(connfd[ID],spemsg[ID]);
 						return 0;
 					}
@@ -464,7 +464,6 @@ inline void sendmsgtoall(int ID){
 	
 }
 
-
 //TRD是每个客户端连接所对应的线程函数。作用是处理客户端的消息交互，接受客户端的数据
 //处理数据并会送回应。当客户端断开时，线程还需要通知其他用户并清理资源。
 void *TRD(void *arg){		//创建的时候传入的是NULL
@@ -500,4 +499,5 @@ void *TRD(void *arg){		//创建的时候传入的是NULL
 		}
 		
 	}
+}
 }
