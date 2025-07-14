@@ -172,26 +172,32 @@ void *heartbeat_thread(void* arg){
 
 inline int Process(int ID){
 	char op[20];
-	int p=0;
+	memset(op, 0, sizeof(op));
 	
 	if(buf[ID][0]==':'){
-		
-		while(buf[ID][0]!='0'&&buf[ID][0]!=' '){// 分离命令和参数 命令保存在op 参数保存在buf[ID]
-			op[p]=buf[ID][0];
+		int p = 0;
+		// 提取命令部分（改为和示例代码一致的解析方式）
+		while(buf[ID][p]!='\0'&&buf[ID][p]!=' '){
+			op[p]=buf[ID][p];
 			p++;
-			char temp[MAXLINE];
-			strcpy(temp,buf[ID]+1);
-			strcpy(buf[ID],temp);
 		}
-		
 		op[p]='\0';
-		while(buf[ID][0]!='0'&&buf[ID][0]==' '){
-			char temp[MAXLINE];
-			strcpy(temp,buf[ID]+1);
-			strcpy(buf[ID],temp);			
+		
+		// 跳过空格，找到参数开始位置
+		while(buf[ID][p]!='\0'&&buf[ID][p]==' '){
+			p++;			
 		}
 		
-		if(op[1]=='n'){
+		// 将参数部分移到buf开头
+		if(buf[ID][p]!='\0'){
+			int param_start = p;
+			int param_len = strlen(buf[ID]) - param_start;
+			memmove(buf[ID], buf[ID] + param_start, param_len + 1);
+		}else{
+			buf[ID][0] = '\0';  // 没有参数
+		}
+		
+		if(op[1] == 'n'){
 			// 新用户登陆，判断是否重名
 			// 重名返回错误信息
 			for(int i=0;i<MAXCON-1;i++){
@@ -218,7 +224,7 @@ inline int Process(int ID){
 			return 0;
 		}
 		
-		if(op[1]=='r'){
+		if(op[1] == 'r'){
 			// 改名，判断是否重名
 			// 重名返回错误信息
 			char newname[MAXNAME];
@@ -246,12 +252,11 @@ inline int Process(int ID){
 			strcpy(names[ID],newname);
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 			strcpy(spemsg[ID], "改名成功");
-			sendmsgtoall(ID);
-			sendmsgtoall(ID);
+			sendmsgtoall(ID);  // 只调用一次
 			return 0;
 		}
 		
-		if(op[1]=='q'){
+		if(op[1] == 'q'){
 			// 用户退出时，给其他所用用户发送提示信息
 			memset(buf[ID],0,strlen(buf[ID]));
 			sprintf(buf[ID], "%s(%s:%d)离开了聊天室", names[ID],
@@ -264,7 +269,7 @@ inline int Process(int ID){
 			return 1; // 给线程函数返回1，用作后续处理
 		}
 		
-		if(op[1]=='s'){
+		if(op[1] == 's'){
 			// 给请求的用户发送所有用户信息
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 			strcpy(spemsg[ID], "IP              Port   name");
@@ -278,28 +283,37 @@ inline int Process(int ID){
 							ntohs(chiladdr[i].sin_port), names[i]);
 					sendonemsg(connfd[ID], spemsg[ID]);
 				}
-			memset(spemsg[ID], 0, sizeof(spemsg[ID]));				
 			}
 			return 0;
 		}
 		
-		if(op[1]=='f'){
+		if(op[1] == 'f'){
 			// 给请求的用户发送服务器端文件
-			system("mkdir server");
-			system("ls server > ./file.txt");
+			system("mkdir -p server_file");
+			system("ls server_file > ./file.txt");
 			FILE* filename=fopen("./file.txt","r");
 			
-			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-			while(fgets(spemsg[ID],MAXLINE,filename)!=NULL){
-				spemsg[ID][strlen(spemsg[ID])-1]='\0';
-				sendonemsg(connfd[ID],spemsg[ID]);
+			if(filename != NULL){
+				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+				strcpy(spemsg[ID], "服务器文件列表:");
+				sendonemsg(connfd[ID], spemsg[ID]);
+				
+				while(fgets(spemsg[ID],MAXLINE,filename)!=NULL){
+					spemsg[ID][strlen(spemsg[ID])-1]='\0';
+					sendonemsg(connfd[ID],spemsg[ID]);
+				}
+				fclose(filename);
+			}else{
+				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
+				strcpy(spemsg[ID], "无法读取文件列表");
+				sendonemsg(connfd[ID], spemsg[ID]);
 			}
-			system("rm -r file.txt");
+			system("rm -f file.txt");
 			
-			return 1;
+			return 0;
 		}
 		
-		if(op[1]=='u'){
+		if(op[1] == 'u'){
 			// 服务器端接收文件
 			char filename[MAXLINE];
 			char filepath[MAXLINE];
@@ -309,8 +323,8 @@ inline int Process(int ID){
 			memset(filepath, 0, sizeof(filepath));
 			memset(command, 0, sizeof(command));
 			strcpy(filename, buf[ID]);
-			system("mkdir server/files");
-			sprintf(filepath, ".server/files/%s", filename);
+			system("mkdir -p server_file");
+			sprintf(filepath, "server_file/%s", filename);
 			sprintf(command, "rm -f %s", filepath);
 
 			//判断是否有同名文件
@@ -359,8 +373,7 @@ inline int Process(int ID){
 
 					memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 					strcpy(spemsg[ID], "文件上传成功");
-
-					sendonemsg(connfd[ID], spemsg[ID]);
+					sendmsgtoall(ID);
 					fclose(fp);
 					return 0;
 				}
@@ -371,7 +384,7 @@ inline int Process(int ID){
 			}
 		}
 		
-		if(op[1]=='d'){
+		if(op[1] == 'd'){
 			// 服务器发送文件
 			char filename[MAXLINE];
 			char filepath[MAXLINE];
@@ -381,30 +394,28 @@ inline int Process(int ID){
 			memset(filepath, 0, sizeof(filepath));
 			memset(command, 0, sizeof(command));
 			strcpy(filename, buf[ID]);
-			system("mkdir Files");
-			sprintf(filepath, "./Files/%s", filename);
+			system("mkdir -p server_file");
+			sprintf(filepath, "./server_file/%s", filename);
 			sprintf(command, "rm -f %s", filepath);
 
 			FILE *fp = fopen(filepath, "rb");
 			if(fp==NULL){
 				memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-				strcpy(spemsg[ID], "Error(5): 文件不存在，请重试。");
+				strcpy(spemsg[ID], "Error(6): 文件不存在，请重试。");
 				sendonemsg(connfd[ID], spemsg[ID]);
 				return 0;
 			}
 			struct stat st;
 			stat(filepath, &st);
-			// 声明一个 stat 结构体变量 st，用于保存文件的属性信息（如大小、权限、修改时间等）。
-			// stat(filepath, &st);
-			// 调用 stat 函数，获取 filepath 指定文件的属性，并将这些信息填充到 st 变量中。
-			// 例如，st.st_size 就是文件的字节大小。这样可以方便后续对文件属性的操作。
+			// 发送文件大小（改为只发送数字，和客户端解析保持一致）
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-			sprintf(spemsg[ID], "File Size: %ld bytes", st.st_size);
+			sprintf(spemsg[ID], "%ld", st.st_size);
 			write(connfd[ID], spemsg[ID], strlen(spemsg[ID]));
-			// 发送文件大小信息给客户端
+			usleep(10000); // 等待客户端处理
+			
 			downloading[ID] = 1; // 设置正在下载标志
 
-			while(fread(filebuf[ID], sizeof(char), MAXFILE, fp) > 0){
+			while((n = fread(filebuf[ID], sizeof(char), MAXFILE, fp)) > 0){
 				// 从文件中读取数据到 filebuf[ID] 中，直到文件结束。
 				write(connfd[ID], filebuf[ID], n); // 将读取的数据发送给客户端
 				memset(filebuf[ID], 0, sizeof(filebuf[ID]));
@@ -414,19 +425,23 @@ inline int Process(int ID){
 			// 发送完成标志
 			memset(spemsg[ID], 0, sizeof(spemsg[ID]));
 			strcpy(spemsg[ID], FINISHFLAG);
+			usleep(1000000); // 等待客户端处理完最后一个数据包
 			write(connfd[ID], spemsg[ID], strlen(spemsg[ID]));
 
 			downloading[ID] = 0; // 清除正在下载标志
 			fclose(fp);
+			return 0;
 		}
 	}else{
 		// 非命令，作为消息发送给所有用户，并给消息来源发送提示信息
-		memset(buf[ID], 0, sizeof(buf[ID]));
-		sprintf(spemsg[ID], "%s(%s:%d): %s", names[ID],
+		char original_msg[MAXLINE];
+		strcpy(original_msg, buf[ID]);  // 保存原始消息
+		
+		sprintf(buf[ID], "%s(%s:%d): %s", names[ID],
 				inet_ntop(AF_INET, &chiladdr[ID].sin_addr, str, sizeof(str)),
-				ntohs(chiladdr[ID].sin_port), buf[ID]);
+				ntohs(chiladdr[ID].sin_port), original_msg);
 		memset(spemsg[ID], 0, sizeof(spemsg[ID]));
-		strcpy(spemsg[ID], "非命令，消息发送成功");
+		strcpy(spemsg[ID], "消息发送成功");
 		sendmsgtoall(ID);
 		return 0;
 	}
@@ -474,7 +489,7 @@ void *TRD(void *arg){		//创建的时候传入的是NULL
 		memset(buf[ID],0,sizeof(buf[ID]));
 		
 		n=read(connfd[ID],buf[ID],MAXLINE);
-		if(n<0){
+		if(n<=0){
 			sprintf(buf[ID],"%s(%s:%d)离开聊天室",names[ID],
 				inet_ntop(AF_INET,&chiladdr[ID].sin_addr,str,sizeof(str)),
 				ntohs(chiladdr[ID].sin_port));

@@ -14,8 +14,8 @@
 
 struct sockaddr_in servaddr;
 char buf[MAXLINE+50];
-char recervemsg[MAXLINE+50];
-char filebuf[MAXLINE+50];
+char receivemsg[MAXLINE+50];
+char filebuf[MAXFILE+50];
 
 int sockfd,n;
 
@@ -37,7 +37,11 @@ int main() {
     printf("输入服务器IP（本机输入：127.0.0.1）：\n");
     fgets(IP,INET_ADDRSTRLEN+5,stdin);
     IP[strlen(IP)-1]='\0';
-    if(isIP(IP)){
+    while(!isIP(IP)){
+        if(strlen(IP) == 0){
+			strcpy(IP, "172.26.120.220");
+			break;
+		}
         printf("请重新输入（本机输入：127.0.0.1）：\n");
         fgets(IP,INET_ADDRSTRLEN+5,stdin);
         IP[strlen(IP)-1]='\0';
@@ -45,6 +49,7 @@ int main() {
     IP[strlen(IP)]='\0';
 
     sockfd = socket(AF_INET, SOCK_STREAM, 0);
+    bzero(&servaddr, sizeof(servaddr));
     servaddr.sin_family = AF_INET;
     servaddr.sin_port = htons(SERV_PORT);
     inet_pton(AF_INET, IP, &servaddr.sin_addr);
@@ -65,44 +70,56 @@ int main() {
 	printf("输入 ':f' 显示所有云端文件\n");
 	printf("输入 ':u' 上传文件\n");
 	printf("输入 ':d' 下载文件\n");
+	printf("输入普通消息直接发送给所有用户\n");
 
     while(fgets(buf,MAXLINE,stdin)!=NULL){
         buf[strlen(buf)-1]='\0'; // 去掉换行符
         int quit=0;
 
         if(buf[0]==':'){
-            if(buf[1]=='q'){ // 退出聊天室
+            if(buf[1]=='q' && (buf[2]=='\0' || buf[2]==' ')){ // 退出聊天室
                 quit=1;
             }
-            else if(buf[1]=='r'){ // 改名
+            else if(buf[1]=='r' && (buf[2]=='\0' || buf[2]==' ')){ // 改名
                 stop=1; // 暂停主函数运行
                 get_name(1);
                 while(stop); // 等待改名是否重名
                 memset(buf, 0, sizeof(buf));
                 continue; // 继续输入
             }
-            else if(buf[1]=='s'){ // 显示在线用户
+            else if(buf[1]=='s' && (buf[2]=='\0' || buf[2]==' ')){ // 显示在线用户
+                // 直接发送命令给服务器
+                sendonemsg(buf);
+                memset(buf, 0, sizeof(buf));
+                continue;
             }
-            else if(buf[1]=='f'){ // 显示云端文件
+            else if(buf[1]=='f' && (buf[2]=='\0' || buf[2]==' ')){ // 显示云端文件
+                // 直接发送命令给服务器
+                sendonemsg(buf);
+                memset(buf, 0, sizeof(buf));
+                continue;
             }
-            else if(buf[1]=='u'){ // 上传文件
+            else if(buf[1]=='u' && (buf[2]=='\0' || buf[2]==' ')){ // 上传文件
                 stop=1; // 暂停主函数运行
                 upload_file(); // 上传文件函数
                 while(stop); // 等待上传是否成功
                 memset(buf, 0, sizeof(buf));
                 continue; // 继续输入
             }
-            else if(buf[1]=='d'){ // 下载文件
+            else if(buf[1]=='d' && (buf[2]=='\0' || buf[2]==' ')){ // 下载文件
                 stop=1; // 暂停主函数运行
                 download_file(); // 下载文件函数
                 while(stop); // 等待下载是否成功
                 memset(buf, 0, sizeof(buf));
                 continue; // 继续
             }
+            else{
+                printf("未知命令，请重新输入。\n");
+                memset(buf, 0, sizeof(buf));
+                continue;
+            }
         }else{
-            printf("输入格式错误，请重新输入。\n");
-            memset(buf, 0, sizeof(buf));
-            continue; // 继续输入
+            // 普通消息，直接发送
         }
         sendonemsg(buf); // 发送消息
         memset(buf, 0, sizeof(buf)); // 清空输入缓冲区
@@ -127,8 +144,12 @@ int isIP(char* IP){
             num=0;
         }else if(IP[i]>='0' && IP[i]<='9'){
             num=num*10+IP[i]-'0';
+        }else if(i==n && IP[i]=='\0'){
+            // 字符串结束符，正常情况
+            break;
+        }else{
+            return 0;  // 其他字符才返回0
         }
-        else return 0;
     }
     if(np==4){
         return 1;
@@ -154,22 +175,23 @@ void startlistening(){
 
 void* listening(){
     while(1){
-        memset(recervemsg, 0, sizeof(recervemsg));
-        n = read(sockfd, recervemsg, MAXLINE);
+        memset(receivemsg, 0, sizeof(receivemsg));
+        n = read(sockfd, receivemsg, MAXLINE);
         if(n <= 0){
             perror("服务器断开连接");
             close(sockfd);
             exit(0);
         }
         else{
-            printf("%s",recervemsg);
+            printf("%s",receivemsg);
         }
-        if(recervemsg[0]!='E') stop = 0; // 如果出错，即重名等情况，暂停主函数运行
-		if(recervemsg[0]=='E' && recervemsg[6]=='1') exit(0);
-		if(recervemsg[0]=='E' && recervemsg[6]=='2') get_name(0);
-		if(recervemsg[0]=='E' && recervemsg[6]=='3') get_name(1);
-		if(recervemsg[0]=='E' && recervemsg[6]=='4') stop = 0;
-		if(recervemsg[0]=='E' && recervemsg[6]=='5') stop = 0;
+        if(receivemsg[0]!='E') stop = 0; // 如果出错，即重名等情况，暂停主函数运行
+		if(receivemsg[0]=='E' && receivemsg[6]=='1') exit(0);
+		if(receivemsg[0]=='E' && receivemsg[6]=='2') get_name(0);
+		if(receivemsg[0]=='E' && receivemsg[6]=='3') get_name(1);
+		if(receivemsg[0]=='E' && receivemsg[6]=='4') stop = 0;
+		if(receivemsg[0]=='E' && receivemsg[6]=='5') stop = 0;
+		if(receivemsg[0]=='E' && receivemsg[6]=='6') stop = 0;
 		// 六种错误代码：
 		// 1: 聊天室人满，退出程序
 		// 2: 首次输入姓名重名，重新进行输入姓名
@@ -186,14 +208,14 @@ void* listening(){
 }
 
 void sendonemsg(char* msg){
-    strcat(msg, "\n");
     write(sockfd, msg, strlen(msg));
 }
 
 void get_name(int mode){
     char name[MAXNAME];
     printf("请输入您的姓名（不超过20个字符）：\n");
-    fgets(name, MAXNAME, stdin);
+    scanf("%s", name); 
+    getchar(); // 清除缓冲区中的换行符
     memset(buf,0,sizeof(buf));
 
     if(mode==0){
@@ -208,10 +230,10 @@ void get_name(int mode){
 } 
 
 void upload_file(){
-    printf("输入文件路径及文件名(for example ./client/filename 或完整路径)：\n");
+    printf("输入文件路径及文件名(for example ./client_file/filename 或完整路径)：\n");
     char filename[MAXLINE];
-    fgets(filename, MAXLINE, stdin);
-    filename[strlen(filename)-1] = '\0'; // 去掉换行符
+    scanf("%s", filename);
+    getchar(); // 清除缓冲区中的换行符
     
     FILE* fp = fopen(filename, "rb");
     if(fp == NULL){
@@ -270,26 +292,32 @@ void download_file(){
     //输入并发送下载命令
     printf("输入服务器上的文件名:\n");
 	char filename[MAXLINE - 10];
-	scanf("%s", filename);
-	memset(buf, 0, sizeof(buf));
-	sprintf(buf, ":d %s", filename);
+    char filepath[MAXLINE + 10];
+    scanf("%s", filename);
+    getchar(); // 清除缓冲区中的换行符
+
+	sprintf(filepath, "./client_file/%s", filename);
+
+    memset(buf,0,sizeof(buf));
+    sprintf(buf, ":d %s", filename);
 	sendonemsg(buf);
 	usleep(10000);
 
-    n=read(sockfd,recervemsg,MAXLINE);
-    int size=0;
-    if(recervemsg[0]=='E'&&recervemsg[6]=='6'){
-        puts(recervemsg);
+    n=read(sockfd,receivemsg,MAXLINE);
+    receivemsg[n] = '\0';
+    long size=0;
+    if(receivemsg[0]=='E'&&receivemsg[6]=='6'){
+        puts(receivemsg);
         stop=0;
         startlistening();
         return ;
     }else{
-        // recervemsg 是一个字符串，内容是服务器发来的文件大小（比如 "10240"）。
-        // atoi 是 C 标准库函数（ASCII to Integer），可以把字符串形式的数字转换为整型数值。
-        size=atoi(recervemsg);
+        // 直接解析文件大小（改为直接转换数字，不解析"File Size: "格式）
+        size = atol(receivemsg);
     }
 
-    FILE* fp = fopen(filename, "wb");
+    system("mkdir -p client_file");
+    FILE* fp = fopen(filepath, "wb");
     if(fp == NULL){
         printf("打开文件失败\n");
         stop = 0; // 继续主函数运行
@@ -298,13 +326,17 @@ void download_file(){
     }
     int total = 0;
 
-    char command[MAXLINE];
-    sprintf(command, "rm -f %s", filename);
+    char command[MAXLINE+20];
+    sprintf(command, "rm -f %s", filepath);
     while(1){
         memset(filebuf, 0, sizeof(filebuf));
-        printf("%6.2f%%", (float)total/(size)*100.0); // 输出已下载的百分比
+        if(size > 0){
+            printf("%6.2f%%", (float)total/(size)*100.0); // 输出已下载的百分比
+        }
         n = read(sockfd, filebuf, MAXFILE);
-        printf("\b\b\b\b\b\b\b"); // 清除百分比显示
+        if(size > 0){
+            printf("\b\b\b\b\b\b\b"); // 清除百分比显示
+        }
         if(n <= 0){
             printf("下载失败，服务器断开连接或传输错误。\n");
             fclose(fp);
